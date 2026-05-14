@@ -1,9 +1,15 @@
 from datetime import datetime, time
 import collections
+import os
+from dotenv import load_dotenv
 
-STORE_OPEN = time(9, 0)
-STORE_CLOSE = time(21, 0)
-MAX_CAPACITY = 50
+load_dotenv()
+
+MAX_CAPACITY = int(os.getenv("MAX_CAPACITY", 50))
+_open = os.getenv("STORE_OPEN", "09:00").split(":")
+_close = os.getenv("STORE_CLOSE", "21:00").split(":")
+STORE_OPEN = time(int(_open[0]), int(_open[1]))
+STORE_CLOSE = time(int(_close[0]), int(_close[1]))
 
 class RetailAnalytics:
     def __init__(self):

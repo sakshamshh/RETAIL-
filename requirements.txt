@@ -3,3 +3,5 @@ fastapi
 uvicorn
 websockets
 jinja2
+ultralytics
+python-dotenv
