@@ -4,6 +4,8 @@ import threading
 import base64
 from src.detector import detect_people, draw_boxes
 from src.analytics import analytics
+from src.tracker import update_tracks
+from src.entry_exit import get_counter
 
 class CameraWorker(threading.Thread):
     def __init__(self, name, url, target_fps, logger, notify, notify_frame, notify_stats):
@@ -12,6 +14,7 @@ class CameraWorker(threading.Thread):
         self.url = url
         self.target_fps = target_fps
         self.frame_interval = 1 / target_fps
+        self.stats_interval = 2
         self.running = True
         self.cap = None
         self.logger = logger
@@ -34,6 +37,8 @@ class CameraWorker(threading.Thread):
     def run(self):
         self.connect()
         last_frame_time = 0
+        last_stats_time = 0
+        counter = get_counter(self.name)
 
         while self.running:
             ret, frame = self.cap.read()
@@ -47,15 +52,34 @@ class CameraWorker(threading.Thread):
             if now - last_frame_time >= self.frame_interval:
                 last_frame_time = now
                 boxes = detect_people(frame)
-                frame = draw_boxes(frame, boxes)
-                count = len(boxes)
-                stats = analytics.update(self.name, count)
-                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                tracks = update_tracks(self.name, boxes, frame)
+                entry_stats = counter.update(tracks, frame.shape[0])
+
+                print(f"{self.name} | tracks={len(tracks)} | IN={entry_stats['entries']} OUT={entry_stats['exits']}")
+
+                for (tid, x1, y1, x2, y2) in tracks:
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(frame, f"ID {tid}", (x1, y1 - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+                line_y = int(frame.shape[0] * 0.5)
+                cv2.line(frame, (0, line_y), (frame.shape[1], line_y), (0, 0, 255), 2)
+                cv2.putText(frame, f"IN:{entry_stats['entries']} OUT:{entry_stats['exits']}",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
+                count = len(tracks)
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
                 b64 = base64.b64encode(buffer).decode('utf-8')
                 self.notify_frame(self.name, b64)
-                self.notify_stats(stats)
-                for alert in stats["alerts"]:
-                    self.notify(alert)
-                self.logger.info(f"{self.name}: {count} people | {stats['period']} | peak: {stats['peak_hour']}")
+
+                if now - last_stats_time >= self.stats_interval:
+                    last_stats_time = now
+                    stats = analytics.update(self.name, count)
+                    stats["entries"] = entry_stats["entries"]
+                    stats["exits"] = entry_stats["exits"]
+                    stats["net"] = entry_stats["net"]
+                    self.notify_stats(stats)
+                    for alert in stats["alerts"]:
+                        self.notify(alert)
             else:
                 time.sleep(self.frame_interval - (now - last_frame_time))
