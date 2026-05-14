@@ -1,39 +1,134 @@
 <!doctype html>
 <html>
-  <head>
-    <title>Camera Monitor</title>
-  </head>
-  <body>
-    <h1>RTSP Monitoring Dashboard</h1>
+<head>
+  <title>Retail Monitor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f0f0f; color: #eee; font-family: sans-serif; padding: 20px; }
+    h1 { color: #fff; margin-bottom: 20px; font-size: 20px; }
+    #status { font-size: 12px; color: #888; margin-bottom: 16px; }
 
-    <div id="alerts"></div>
+    #stats-bar {
+      display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .stat-card {
+      background: #1e1e1e; border-radius: 8px; padding: 14px 20px;
+      min-width: 140px; text-align: center;
+    }
+    .stat-card .label { font-size: 11px; color: #888; margin-bottom: 4px; }
+    .stat-card .value { font-size: 24px; font-weight: bold; color: #4af; }
+    .stat-card.alert .value { color: #f84; }
+    .stat-card.good .value { color: #4f8; }
 
-    <script>
-      const socket = new WebSocket("ws://127.0.0.1:8000/ws");
+    #cameras { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+    .cam-box { background: #1e1e1e; border-radius: 8px; padding: 10px; }
+    .cam-box h3 { margin-bottom: 8px; color: #adf; font-size: 13px; }
+    .cam-box img { width: 380px; height: 260px; object-fit: cover; background: #000; border-radius: 4px; display: block; }
+    .cam-count { font-size: 12px; color: #4af; margin-top: 6px; }
 
-      socket.onopen = () => {
-        console.log("WebSocket Connected");
-      };
+    #alerts-panel { background: #1a1a1a; border-radius: 8px; padding: 14px; max-height: 220px; overflow-y: auto; }
+    #alerts-panel h3 { margin-bottom: 10px; color: #fa0; font-size: 14px; }
+    .alert-item { color: #f88; font-size: 12px; padding: 5px 0; border-bottom: 1px solid #2a2a2a; }
+    .alert-time { color: #666; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <h1>?? Retail Intelligence Dashboard</h1>
+  <div id="status">Connecting...</div>
 
-      socket.onmessage = (event) => {
-        console.log("MESSAGE:", event.data);
+  <div id="stats-bar">
+    <div class="stat-card" id="card-people">
+      <div class="label">People in Store</div>
+      <div class="value" id="stat-people">0</div>
+    </div>
+    <div class="stat-card" id="card-peak">
+      <div class="label">Peak Hour</div>
+      <div class="value" id="stat-peak">--</div>
+    </div>
+    <div class="stat-card" id="card-period">
+      <div class="label">Period</div>
+      <div class="value" id="stat-period">--</div>
+    </div>
+    <div class="stat-card" id="card-store">
+      <div class="label">Store Status</div>
+      <div class="value" id="stat-store">--</div>
+    </div>
+    <div class="stat-card" id="card-capacity">
+      <div class="label">Capacity</div>
+      <div class="value" id="stat-capacity">0%</div>
+    </div>
+  </div>
 
-        const data = JSON.parse(event.data);
+  <div id="cameras">
+    <div class="cam-box">
+      <h3>cam1</h3>
+      <img id="cam1" src="" alt="cam1"/>
+      <div class="cam-count" id="count-cam1">People: 0</div>
+    </div>
+    <div class="cam-box">
+      <h3>cam2</h3>
+      <img id="cam2" src="" alt="cam2"/>
+      <div class="cam-count" id="count-cam2">People: 0</div>
+    </div>
+    <div class="cam-box">
+      <h3>cam3</h3>
+      <img id="cam3" src="" alt="cam3"/>
+      <div class="cam-count" id="count-cam3">People: 0</div>
+    </div>
+  </div>
 
-        const div = document.getElementById("alerts");
+  <div id="alerts-panel">
+    <h3>?? Alerts</h3>
+    <div id="alert-list"></div>
+  </div>
 
-        div.innerHTML += `
-            <p>${data.message}</p>
-        `;
-      };
+  <script>
+    const socket = new WebSocket("ws://127.0.0.1:8000/ws");
+    const MAX_CAPACITY = 50;
 
-      socket.onerror = (err) => {
-        console.log("WebSocket Error", err);
-      };
+    socket.onopen = () => {
+      document.getElementById("status").textContent = "?? Connected";
+    };
 
-      socket.onclose = () => {
-        console.log("WebSocket Closed");
-      };
-    </script>
-  </body>
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === "frame") {
+        const img = document.getElementById(data.camera);
+        if (img) img.src = "data:image/jpeg;base64," + data.data;
+      }
+
+      if (data.type === "analytics") {
+        const count = data.people_count;
+
+        document.getElementById("count-" + data.camera).textContent = "People: " + count;
+        document.getElementById("stat-people").textContent = count;
+        document.getElementById("stat-peak").textContent = data.peak_hour;
+        document.getElementById("stat-period").textContent = data.period;
+
+        const storeEl = document.getElementById("stat-store");
+        storeEl.textContent = data.store_open ? "OPEN" : "CLOSED";
+        document.getElementById("card-store").className = "stat-card " + (data.store_open ? "good" : "alert");
+
+        const pct = Math.round((count / MAX_CAPACITY) * 100);
+        const capEl = document.getElementById("stat-capacity");
+        capEl.textContent = pct + "%";
+        document.getElementById("card-capacity").className = "stat-card " + (pct > 80 ? "alert" : "good");
+      }
+
+      if (data.type === "alert") {
+        const div = document.getElementById("alert-list");
+        const p = document.createElement("p");
+        p.className = "alert-item";
+        p.innerHTML = "<span class='alert-time'>" + new Date().toLocaleTimeString() + "</span>" + data.message;
+        div.prepend(p);
+        if (div.children.length > 50) div.removeChild(div.lastChild);
+      }
+    };
+
+    socket.onclose = () => {
+      document.getElementById("status").textContent = "?? Disconnected";
+    };
+  </script>
+</body>
 </html>
