@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\SAKSHAM\\\\OneDrive\\\\Documents\\\\Documents\\\\Saksham\\\\RETAIL STORE\\\\RTSP-main\" -Recurse -Force)",
+      "Bash(Select-Object FullName)"
+    ]
+  }
+}
