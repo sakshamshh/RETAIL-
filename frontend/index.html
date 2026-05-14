@@ -1,0 +1,177 @@
+﻿<!doctype html>
+<html>
+<head>
+  <title>RetailIQ</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f0f0f; color: #eee; font-family: sans-serif; padding: 20px; }
+    h1 { color: #fff; margin-bottom: 6px; font-size: 20px; }
+    #version { font-size: 11px; color: #555; margin-bottom: 16px; }
+    #status { font-size: 12px; color: #888; margin-bottom: 16px; }
+    #stats-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .stat-card { background: #1e1e1e; border-radius: 8px; padding: 14px 20px; min-width: 130px; text-align: center; }
+    .stat-card .label { font-size: 11px; color: #888; margin-bottom: 4px; }
+    .stat-card .value { font-size: 24px; font-weight: bold; color: #4af; }
+    .stat-card.alert .value { color: #f84; }
+    .stat-card.good .value { color: #4f8; }
+    #cameras { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+    .cam-box { background: #1e1e1e; border-radius: 8px; padding: 10px; }
+    .cam-box h3 { margin-bottom: 8px; color: #adf; font-size: 13px; }
+    .cam-box img { width: 380px; height: 260px; object-fit: cover; background: #000; border-radius: 4px; display: block; }
+    .cam-stats { font-size: 12px; color: #4af; margin-top: 6px; display: flex; gap: 12px; }
+    .cam-stats span { color: #4f8; }
+    .cam-stats span.out { color: #f84; }
+    #bottom { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+    #chart-box { background: #1e1e1e; border-radius: 8px; padding: 16px; flex: 1; min-width: 400px; }
+    #chart-box h3 { margin-bottom: 12px; color: #adf; font-size: 13px; }
+    #today-box { background: #1e1e1e; border-radius: 8px; padding: 16px; min-width: 200px; }
+    #today-box h3 { margin-bottom: 12px; color: #adf; font-size: 13px; }
+    .today-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #2a2a2a; font-size: 13px; }
+    .today-row .val { color: #4af; font-weight: bold; }
+    #alerts-panel { background: #1a1a1a; border-radius: 8px; padding: 14px; max-height: 200px; overflow-y: auto; }
+    #alerts-panel h3 { margin-bottom: 10px; color: #fa0; font-size: 14px; }
+    .alert-item { color: #f88; font-size: 12px; padding: 5px 0; border-bottom: 1px solid #2a2a2a; }
+    .alert-time { color: #666; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <h1>RetailIQ</h1>
+  <div id="version">v1.3.0 - AI Retail Intelligence Platform</div>
+  <div id="status">Connecting...</div>
+
+  <div id="stats-bar">
+    <div class="stat-card"><div class="label">People in Store</div><div class="value" id="stat-people">0</div></div>
+    <div class="stat-card"><div class="label">Total Entries</div><div class="value" id="stat-entries" style="color:#4f8">0</div></div>
+    <div class="stat-card"><div class="label">Total Exits</div><div class="value" id="stat-exits" style="color:#f84">0</div></div>
+    <div class="stat-card"><div class="label">Net Traffic</div><div class="value" id="stat-net">0</div></div>
+    <div class="stat-card"><div class="label">Peak Hour</div><div class="value" id="stat-peak">--</div></div>
+    <div class="stat-card"><div class="label">Period</div><div class="value" id="stat-period">--</div></div>
+    <div class="stat-card" id="card-store"><div class="label">Store Status</div><div class="value" id="stat-store">--</div></div>
+    <div class="stat-card" id="card-capacity"><div class="label">Capacity</div><div class="value" id="stat-capacity">0%</div></div>
+  </div>
+
+  <div id="cameras">
+    <div class="cam-box"><h3>cam1</h3><img id="cam1" src="" alt="cam1"/>
+      <div class="cam-stats">People: <span id="count-cam1">0</span> &nbsp;IN: <span id="in-cam1">0</span> &nbsp;OUT: <span class="out" id="out-cam1">0</span></div>
+    </div>
+  </div>
+
+  <div id="bottom">
+    <div id="chart-box">
+      <h3>Hourly Traffic</h3>
+      <canvas id="hourlyChart" height="120"></canvas>
+    </div>
+    <div id="today-box">
+      <h3>Today Summary</h3>
+      <div class="today-row"><span>Total Entries</span><span class="val" id="today-entries">--</span></div>
+      <div class="today-row"><span>Total Exits</span><span class="val" id="today-exits">--</span></div>
+      <div class="today-row"><span>Peak Count</span><span class="val" id="today-peak">--</span></div>
+      <div class="today-row"><span>Avg People</span><span class="val" id="today-avg">--</span></div>
+    </div>
+  </div>
+
+  <div id="alerts-panel">
+    <h3>Alerts</h3>
+    <div id="alert-list"></div>
+  </div>
+
+  <script>
+    const socket = new WebSocket("ws://127.0.0.1:8000/ws");
+    const MAX_CAPACITY = 50;
+
+    // Chart setup
+    const ctx = document.getElementById("hourlyChart").getContext("2d");
+    const hourlyChart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: [],
+        datasets: [{
+          label: "Avg People",
+          data: [],
+          backgroundColor: "rgba(68, 170, 255, 0.5)",
+          borderColor: "#4af",
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: "#888" }, grid: { color: "#222" } },
+          y: { ticks: { color: "#888" }, grid: { color: "#222" } }
+        }
+      }
+    });
+
+    // Load chart data
+    function loadChartData() {
+      fetch("/api/hourly")
+        .then(r => r.json())
+        .then(data => {
+          hourlyChart.data.labels = data.map(d => d.hour + ":00");
+          hourlyChart.data.datasets[0].data = data.map(d => d.avg);
+          hourlyChart.update();
+        });
+    }
+
+    // Load today summary
+    function loadToday() {
+      fetch("/api/today")
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById("today-entries").textContent = data.total_entries;
+          document.getElementById("today-exits").textContent = data.total_exits;
+          document.getElementById("today-peak").textContent = data.peak_count;
+          document.getElementById("today-avg").textContent = data.avg_count;
+        });
+    }
+
+    loadChartData();
+    loadToday();
+    setInterval(loadChartData, 30000);
+    setInterval(loadToday, 10000);
+
+    socket.onopen = () => { document.getElementById("status").textContent = "Connected"; };
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === "frame") {
+        const img = document.getElementById(data.camera);
+        if (img) img.src = "data:image/jpeg;base64," + data.data;
+      }
+
+      if (data.type === "analytics") {
+        const count = data.people_count;
+        document.getElementById("count-" + data.camera).textContent = count;
+        document.getElementById("in-" + data.camera).textContent = data.entries || 0;
+        document.getElementById("out-" + data.camera).textContent = data.exits || 0;
+        document.getElementById("stat-people").textContent = count;
+        document.getElementById("stat-entries").textContent = data.entries || 0;
+        document.getElementById("stat-exits").textContent = data.exits || 0;
+        document.getElementById("stat-net").textContent = data.net || 0;
+        document.getElementById("stat-peak").textContent = data.peak_hour;
+        document.getElementById("stat-period").textContent = data.period;
+        const storeEl = document.getElementById("stat-store");
+        storeEl.textContent = data.store_open ? "OPEN" : "CLOSED";
+        document.getElementById("card-store").className = "stat-card " + (data.store_open ? "good" : "alert");
+        const pct = Math.round((count / MAX_CAPACITY) * 100);
+        document.getElementById("stat-capacity").textContent = pct + "%";
+        document.getElementById("card-capacity").className = "stat-card " + (pct > 80 ? "alert" : "good");
+      }
+
+      if (data.type === "alert") {
+        const div = document.getElementById("alert-list");
+        const p = document.createElement("p");
+        p.className = "alert-item";
+        p.innerHTML = "<span class='alert-time'>" + new Date().toLocaleTimeString() + "</span>" + data.message;
+        div.prepend(p);
+        if (div.children.length > 50) div.removeChild(div.lastChild);
+      }
+    };
+
+    socket.onclose = () => { document.getElementById("status").textContent = "Disconnected"; };
+  </script>
+</body>
+</html>
