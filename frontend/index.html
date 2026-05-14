@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Camera Monitor</title>
+  </head>
+  <body>
+    <h1>RTSP Monitoring Dashboard</h1>
+
+    <div id="alerts"></div>
+
+    <script>
+      const socket = new WebSocket("ws://127.0.0.1:8000/ws");
+
+      socket.onopen = () => {
+        console.log("WebSocket Connected");
+      };
+
+      socket.onmessage = (event) => {
+        console.log("MESSAGE:", event.data);
+
+        const data = JSON.parse(event.data);
+
+        const div = document.getElementById("alerts");
+
+        div.innerHTML += `
+            <p>${data.message}</p>
+        `;
+      };
+
+      socket.onerror = (err) => {
+        console.log("WebSocket Error", err);
+      };
+
+      socket.onclose = () => {
+        console.log("WebSocket Closed");
+      };
+    </script>
+  </body>
+</html>
