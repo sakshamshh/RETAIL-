@@ -2,10 +2,11 @@ import cv2
 import time
 import threading
 import base64
-from src.detector import detect_people, draw_boxes
+from src.detector import detect_people
 from src.analytics import analytics
 from src.tracker import update_tracks
 from src.entry_exit import get_counter
+from src.database import save_traffic, save_alert
 
 class CameraWorker(threading.Thread):
     def __init__(self, name, url, target_fps, logger, notify, notify_frame, notify_stats):
@@ -15,6 +16,7 @@ class CameraWorker(threading.Thread):
         self.target_fps = target_fps
         self.frame_interval = 1 / target_fps
         self.stats_interval = 2
+        self.db_interval = 30
         self.running = True
         self.cap = None
         self.logger = logger
@@ -38,6 +40,7 @@ class CameraWorker(threading.Thread):
         self.connect()
         last_frame_time = 0
         last_stats_time = 0
+        last_db_time = 0
         counter = get_counter(self.name)
 
         while self.running:
@@ -54,8 +57,6 @@ class CameraWorker(threading.Thread):
                 boxes = detect_people(frame)
                 tracks = update_tracks(self.name, boxes, frame)
                 entry_stats = counter.update(tracks, frame.shape[0])
-
-                print(f"{self.name} | tracks={len(tracks)} | IN={entry_stats['entries']} OUT={entry_stats['exits']}")
 
                 for (tid, x1, y1, x2, y2) in tracks:
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -81,5 +82,11 @@ class CameraWorker(threading.Thread):
                     self.notify_stats(stats)
                     for alert in stats["alerts"]:
                         self.notify(alert)
+                        save_alert(self.name, alert)
+
+                if now - last_db_time >= self.db_interval:
+                    last_db_time = now
+                    save_traffic(self.name, count, entry_stats["entries"], entry_stats["exits"], entry_stats["net"])
+                    self.logger.info(f"{self.name}: saved to DB | people={count} IN={entry_stats['entries']}")
             else:
                 time.sleep(self.frame_interval - (now - last_frame_time))
