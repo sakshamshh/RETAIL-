@@ -1,0 +1,38 @@
+﻿# secrets
+.env
+*.pem
+*.key
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+.eggs/
+
+# data and logs
+logs/
+data/
+reports/
+*.log
+*.db
+
+# models (too large for github)
+*.pt
+*.onnx
+
+# archive
+src/archive/
+
+# ide
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# videos
+*.mp4
+*.avi
+*.mov
+*.mkv

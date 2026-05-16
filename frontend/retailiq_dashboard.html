@@ -1,0 +1,209 @@
+
+<h2 class="sr-only">RetailIQ live store analytics dashboard showing footfall, hourly traffic, and zone heatmap</h2>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;700&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0a0a0a;--surface:#111;--surface2:#1a1a1a;--border:#222;
+    --text:#f0f0f0;--muted:#666;--accent:#00e5a0;--accent2:#00b8ff;
+    --danger:#ff4d4d;--warn:#ffaa00;
+  }
+  body{background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;min-height:100vh}
+  .shell{padding:24px;max-width:900px;margin:0 auto}
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+  .logo{font-size:13px;font-weight:700;letter-spacing:0.15em;color:var(--accent);text-transform:uppercase}
+  .status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-family:'DM Mono',monospace}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+  .metric{background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:16px 18px}
+  .metric-label{font-size:11px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;font-family:'DM Mono',monospace}
+  .metric-value{font-size:28px;font-weight:700;line-height:1;color:var(--text)}
+  .metric-value.green{color:var(--accent)}
+  .metric-value.blue{color:var(--accent2)}
+  .metric-sub{font-size:11px;color:var(--muted);margin-top:6px;font-family:'DM Mono',monospace}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+  .card{background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:18px}
+  .card-full{background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:18px;margin-bottom:12px}
+  .card-title{font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px;font-family:'DM Mono',monospace}
+  .cam-list{display:flex;flex-direction:column;gap:8px}
+  .cam-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--surface2);border-radius:8px}
+  .cam-name{font-size:13px;font-weight:500;font-family:'DM Mono',monospace;color:var(--accent)}
+  .cam-stats{display:flex;gap:16px}
+  .cam-stat{font-size:12px;color:var(--muted);font-family:'DM Mono',monospace}
+  .cam-stat span{color:var(--text)}
+  .cam-badge{width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:8px;display:inline-block}
+  .cam-badge.off{background:var(--danger)}
+  .zone-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+  .zone-item{background:var(--surface2);border-radius:8px;padding:12px;text-align:center}
+  .zone-name{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:6px;text-transform:uppercase}
+  .zone-bar-wrap{height:4px;background:var(--border);border-radius:2px;margin-bottom:6px}
+  .zone-bar{height:4px;border-radius:2px;background:var(--accent);transition:width 1s ease}
+  .zone-count{font-size:18px;font-weight:700;color:var(--text)}
+  .refresh-btn{background:none;border:0.5px solid var(--border);color:var(--muted);font-size:11px;padding:6px 14px;border-radius:6px;cursor:pointer;font-family:'DM Mono',monospace;letter-spacing:0.05em}
+  .refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .error-msg{font-size:12px;color:var(--danger);font-family:'DM Mono',monospace;padding:8px 0}
+  .chart-wrap{position:relative;width:100%;height:180px}
+</style>
+
+<div class="shell">
+  <div class="topbar">
+    <div class="logo">RetailIQ</div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="status"><span class="dot" id="live-dot"></span><span id="live-label">connecting...</span></div>
+      <button class="refresh-btn" onclick="loadAll()"><i class="ti ti-refresh" aria-hidden="true"></i> refresh</button>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-label">current in store</div>
+      <div class="metric-value green" id="m-current">—</div>
+      <div class="metric-sub" id="m-current-sub">across all cameras</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">total entries today</div>
+      <div class="metric-value blue" id="m-in">—</div>
+      <div class="metric-sub" id="m-date">—</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">total exits today</div>
+      <div class="metric-value" id="m-out">—</div>
+      <div class="metric-sub">cumulative</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">cameras online</div>
+      <div class="metric-value" id="m-cams">—</div>
+      <div class="metric-sub" id="m-cams-sub">—</div>
+    </div>
+  </div>
+
+  <div class="card-full">
+    <div class="card-title">hourly footfall</div>
+    <div class="chart-wrap">
+      <canvas id="hourlyChart" role="img" aria-label="Hourly footfall bar chart showing entries per hour today">No hourly data yet.</canvas>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="card-title">live camera status</div>
+      <div class="cam-list" id="cam-list"><div class="error-msg">loading...</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">zone activity today</div>
+      <div class="zone-grid" id="zone-grid"><div class="error-msg">loading...</div></div>
+    </div>
+  </div>
+
+  <div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;text-align:center;padding-top:8px" id="last-updated"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const BASE = 'https://retailiq.centralindia.cloudapp.azure.com';
+let hourlyChart = null;
+
+function setLive(ok){
+  document.getElementById('live-dot').style.background = ok ? '#00e5a0' : '#ff4d4d';
+  document.getElementById('live-label').textContent = ok ? 'live' : 'offline';
+}
+
+async function fetchJSON(path){
+  const r = await fetch(BASE + path);
+  if(!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+async function loadToday(){
+  const d = await fetchJSON('/api/today');
+  let totalIn=0, totalOut=0, current=0;
+  d.cameras.forEach(c=>{ totalIn+=c.total_in||0; totalOut+=c.total_out||0; current+=c.current||0; });
+  document.getElementById('m-current').textContent = current;
+  document.getElementById('m-in').textContent = totalIn;
+  document.getElementById('m-out').textContent = totalOut;
+  document.getElementById('m-date').textContent = d.date;
+}
+
+async function loadLive(){
+  const d = await fetchJSON('/api/live');
+  const list = document.getElementById('cam-list');
+  const count = d.cameras.length;
+  document.getElementById('m-cams').textContent = count;
+  document.getElementById('m-cams-sub').textContent = count === 1 ? '1 camera active' : count + ' cameras active';
+  if(!count){ list.innerHTML='<div class="error-msg">no cameras reporting</div>'; return; }
+  list.innerHTML = d.cameras.map(c=>{
+    const ago = c.last_seen ? new Date(c.last_seen).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
+    return `<div class="cam-row">
+      <div style="display:flex;align-items:center"><span class="cam-badge"></span><span class="cam-name">${c._id}</span></div>
+      <div class="cam-stats">
+        <div class="cam-stat">in <span>${c.total_in||0}</span></div>
+        <div class="cam-stat">out <span>${c.total_out||0}</span></div>
+        <div class="cam-stat">now <span>${c.current||0}</span></div>
+        <div class="cam-stat">@<span>${ago}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadHourly(){
+  const d = await fetchJSON('/api/hourly');
+  const byHour = {};
+  d.hourly.forEach(h=>{ byHour[h._id.hour] = (byHour[h._id.hour]||0) + Math.round(h.entries||0); });
+  const labels = Array.from({length:24},(_,i)=>String(i).padStart(2,'0'));
+  const data = labels.map(h=>byHour[h]||0);
+  if(hourlyChart){ hourlyChart.destroy(); }
+  hourlyChart = new Chart(document.getElementById('hourlyChart'),{
+    type:'bar',
+    data:{
+      labels: labels.map(h=>h+':00'),
+      datasets:[{
+        label:'entries',
+        data,
+        backgroundColor:'rgba(0,229,160,0.25)',
+        borderColor:'#00e5a0',
+        borderWidth:1,
+        borderRadius:3
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#666',font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:12},grid:{color:'#1a1a1a'}},
+        y:{ticks:{color:'#666',font:{size:10}},grid:{color:'#1a1a1a'},beginAtZero:true}
+      }
+    }
+  });
+}
+
+async function loadZones(){
+  const d = await fetchJSON('/api/zones');
+  const grid = document.getElementById('zone-grid');
+  if(!d.zones.length){ grid.innerHTML='<div class="error-msg">no zone data yet</div>'; return; }
+  const max = Math.max(...d.zones.map(z=>z.count));
+  grid.innerHTML = d.zones.slice(0,12).map(z=>{
+    const pct = max ? Math.round((z.count/max)*100) : 0;
+    return `<div class="zone-item">
+      <div class="zone-name">${z._id.zone}</div>
+      <div class="zone-bar-wrap"><div class="zone-bar" style="width:${pct}%"></div></div>
+      <div class="zone-count">${z.count}</div>
+    </div>`;
+  }).join('');
+}
+
+async function loadAll(){
+  try{
+    await Promise.all([loadToday(), loadLive(), loadHourly(), loadZones()]);
+    setLive(true);
+    document.getElementById('last-updated').textContent = 'last updated ' + new Date().toLocaleTimeString();
+  } catch(e){
+    setLive(false);
+    document.getElementById('last-updated').textContent = 'error: ' + e.message;
+  }
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
