@@ -151,8 +151,9 @@ class FrameUploader:
         try:
             self.queue.put_nowait(payload)
         except __import__('queue').Full:
-            logger.warning("Upload queue full, saving directly to buffer")
-            self._buffer(payload)
+            # Drop frame instead of buffering — buffering during high load 
+            # causes unbounded disk growth. Log and move on.
+            logger.debug("Queue full — dropping frame (server processing too slow)")
 
     def _post(self, payload: Dict[str, Any]) -> bool:
         """Attempts to POST the payload to the cloud API."""
@@ -273,7 +274,11 @@ class CameraWorker(threading.Thread):
         if isinstance(self.url, str) and self.url.startswith("rtsp"):
             self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
         else:
-            self.cap = cv2.VideoCapture(self.url)
+            # On Windows, MSMF backend is notoriously buggy for webcams. Use DirectShow.
+            if os.name == 'nt' and isinstance(self.url, int):
+                self.cap = cv2.VideoCapture(self.url, cv2.CAP_DSHOW)
+            else:
+                self.cap = cv2.VideoCapture(self.url)
             
         if not self.cap.isOpened():
             logger.error(f"Failed to open stream {self.url}")
@@ -353,7 +358,7 @@ class CameraWorker(threading.Thread):
         crops_data.sort(key=lambda c: c["area"], reverse=True)
         
         # Filter out insignificant motion (background noise, dust, lighting changes)
-        crops_data = [c for c in crops_data if c["area"] > 3000]
+        crops_data = [c for c in crops_data if c["area"] > 500]
         
         # Only send if at least one substantial crop exists
         if not crops_data:

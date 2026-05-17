@@ -26,15 +26,20 @@ FACTORY_BLOB_PATHS = {}
 BLOB_STORAGE_DIR = os.path.join(os.path.dirname(__file__), "temp_blobs")
 os.makedirs(BLOB_STORAGE_DIR, exist_ok=True)
 
-class BlobPayload(BaseModel):
+class CropPayload(BaseModel):
+    bbox: list
+    jpeg_b64: str
+    area: int
+
+class FramePayload(BaseModel):
+    store_id: str
     camera_id: str
     timestamp: str
-    blob_image_b64: str
-    bbox: list
+    frame_id: int
     frame_resolution: list
-
-class BlobBatch(BaseModel):
-    blobs: list[BlobPayload]
+    calibration_mode: bool
+    crops: list[CropPayload]
+    full_frame_b64: Optional[str] = None
 
 async def delete_old_blobs():
     """Background task that runs continuously to delete blobs older than 30 mins."""
@@ -58,22 +63,33 @@ async def startup_event():
     logger.info("[Privacy Engine] 30-Minute Blob Shredder initialized.")
     asyncio.create_task(delete_old_blobs())
 
-@app.post("/api/blobs")
-async def receive_blob(payload: BlobBatch, background_tasks: BackgroundTasks):
+@app.post("/api/frames")
+async def receive_frame(payload: FramePayload, background_tasks: BackgroundTasks):
     try:
         detected_items = []
-        for blob in payload.blobs:
-            # 1. Decode the Base64 Blob back into an OpenCV Image
-            img_data = base64.b64decode(blob.blob_image_b64)
+        safe_time = payload.timestamp.replace(":", "-").replace(".", "-")
+        
+        # 1. Handle Calibration Full Frame
+        if payload.calibration_mode and payload.full_frame_b64:
+            img_data = base64.b64decode(payload.full_frame_b64)
+            np_arr = np.frombuffer(img_data, np.uint8)
+            full_img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            if full_img is not None:
+                calib_path = os.path.join(BLOB_STORAGE_DIR, f"calib_{payload.camera_id}_{safe_time}.jpg")
+                cv2.imwrite(calib_path, full_img)
+                logger.info(f"[Calibration] Saved full frame for {payload.camera_id}")
+
+        # 2. Process Crops
+        for i, crop in enumerate(payload.crops):
+            img_data = base64.b64decode(crop.jpeg_b64)
             np_arr = np.frombuffer(img_data, np.uint8)
             img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
             if img is None:
                 continue
 
-            # 2. Save Blob temporarily (Privacy Policy: Deleted after 30 mins)
-            safe_time = blob.timestamp.replace(":", "-").replace(".", "-")
-            filepath = os.path.join(BLOB_STORAGE_DIR, f"{blob.camera_id}_{safe_time}.jpg")
+            # Save Crop temporarily (Privacy Policy: Deleted after 30 mins)
+            filepath = os.path.join(BLOB_STORAGE_DIR, f"crop_{payload.camera_id}_{safe_time}_{i}.jpg")
             cv2.imwrite(filepath, img)
 
             # 3. Heavy-Duty YOLO Inference
@@ -91,18 +107,20 @@ async def receive_blob(payload: BlobBatch, background_tasks: BackgroundTasks):
                             break
 
             # 4. Math Aggregation for Zero-Click Calibration
-            if blob.camera_id not in FACTORY_BLOB_PATHS:
-                FACTORY_BLOB_PATHS[blob.camera_id] = []
+            if payload.camera_id not in FACTORY_BLOB_PATHS:
+                FACTORY_BLOB_PATHS[payload.camera_id] = []
             
             # We store the center of the bounding box for tracking
-            cx = (blob.bbox[0] + blob.bbox[2]) / 2
-            cy = (blob.bbox[1] + blob.bbox[3]) / 2
-            FACTORY_BLOB_PATHS[blob.camera_id].append([cx, cy])
+            # Note: bbox is normalized [x, y, w, h]
+            x, y, w, h = crop.bbox
+            cx = x + (w / 2)
+            cy = y + (h / 2)
+            FACTORY_BLOB_PATHS[payload.camera_id].append([cx, cy])
 
-            logger.info(f"[Cloud Catcher] Caught blob from {blob.camera_id}. YOLO Detected: [{detection_result.upper()}]")
+            logger.info(f"[Cloud Catcher] Processed crop from {payload.camera_id}. YOLO Detected: [{detection_result.upper()}]")
             detected_items.append(detection_result)
 
-        return {"status": "success", "detected": detected_items}
+        return {"status": "success", "detected": detected_items, "calib_frame_saved": bool(payload.full_frame_b64)}
 
     except Exception as e:
         logger.error(f"Error processing blob: {e}")

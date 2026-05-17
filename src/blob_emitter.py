@@ -1,8 +1,8 @@
 import json, time, queue, threading, sqlite3, logging, os, requests
 from datetime import datetime, timezone
 
-CLOUD_ENDPOINT = os.getenv("CLOUD_ENDPOINT", "http://98.70.41.191:8000/api/blobs")
-CLOUD_API_KEY = os.getenv("CLOUD_API_KEY", "")
+CLOUD_ENDPOINT = os.getenv("CLOUD_ENDPOINT", "http://98.70.41.191:8000/api/blobs").strip()
+CLOUD_API_KEY = os.getenv("CLOUD_API_KEY", "").strip()
 BUFFER_DB_PATH = os.getenv("BUFFER_DB_PATH", "data/blob_buffer.db")
 UPLOAD_TIMEOUT = 5
 RETRY_INTERVAL = 15

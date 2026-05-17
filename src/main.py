@@ -6,7 +6,7 @@ from camera_worker import CameraWorker
 from updater import OTAUpdater
 
 def main():
-    logger = get_logger("EdgeNode")
+    logger = get_logger()
     logger.info("Initializing Auris Edge Node...")
 
     # 1. Start OTA Updater (Checks GitHub every 60 mins for new code)

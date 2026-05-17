@@ -1,0 +1,17 @@
+[Unit]
+Description=Auris Edge AI CV Worker
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/auris
+Environment="PATH=/opt/auris/venv/bin"
+ExecStart=/opt/auris/venv/bin/python /opt/auris/src/edge_worker.py
+Restart=always
+RestartSec=5
+# Adjust limit if we have 7+ cameras generating heavy logs
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
