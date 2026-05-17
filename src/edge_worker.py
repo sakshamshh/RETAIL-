@@ -117,7 +117,8 @@ class FrameUploader:
         self.endpoint = endpoint
         self.api_key = api_key
         self.store_id = store_id
-        self.queue = queue.Queue(maxsize=100)
+        self.queue = queue.Queue(maxsize=300)
+        self._upload_semaphore = threading.Semaphore(2)
         self._buffer_size = 0
         
         self._init_db()
@@ -162,7 +163,8 @@ class FrameUploader:
             if payload.get("calibration_mode", False):
                 headers["X-Calibration"] = "true"
                 
-            resp = requests.post(self.endpoint, json=payload, headers=headers, timeout=10)
+            with self._upload_semaphore:
+                resp = requests.post(self.endpoint, json=payload, headers=headers, timeout=10)
             return resp.status_code in (200, 201, 202)
         except requests.exceptions.RequestException as e:
             logger.debug(f"HTTP Post failed: {e}")
@@ -248,6 +250,19 @@ class CameraWorker(threading.Thread):
         self.frame_count = 0
         self.consecutive_failures = 0
 
+    def get_effective_fps(self) -> float:
+        queue_size = self.uploader.queue.qsize()
+        max_size = self.uploader.queue.maxsize
+        ratio = queue_size / max_size
+        if ratio > 0.8:
+            return 0.5
+        elif ratio > 0.5:
+            return 1.0
+        elif ratio > 0.2:
+            return min(self.target_fps, 2.0)
+        else:
+            return self.target_fps
+
     def connect(self):
         """Establishes connection to the RTSP stream."""
         if self.cap:
@@ -301,6 +316,7 @@ class CameraWorker(threading.Thread):
         
         crops_data = []
         for (x, y, w, h) in merged_rects:
+            x, y, w, h = int(x), int(y), int(w), int(h)
             area = w * h
             
             # Add 30px padding
@@ -325,16 +341,24 @@ class CameraWorker(threading.Thread):
                 b64_str = base64.b64encode(encoded_img).decode('utf-8')
                 
                 # Normalise bbox coords 0-1
-                norm_bbox = [px1/W, py1/H, (px2-px1)/W, (py2-py1)/H]
+                norm_bbox = [float(px1/W), float(py1/H), float((px2-px1)/W), float((py2-py1)/H)]
                 
                 crops_data.append({
                     "bbox": norm_bbox,
                     "jpeg_b64": b64_str,
-                    "area": area
+                    "area": int(area)
                 })
                 
         # Maximum 20 crops (take largest by area)
         crops_data.sort(key=lambda c: c["area"], reverse=True)
+        
+        # Filter out insignificant motion (background noise, dust, lighting changes)
+        crops_data = [c for c in crops_data if c["area"] > 3000]
+        
+        # Only send if at least one substantial crop exists
+        if not crops_data:
+            return []
+            
         return crops_data[:20]
 
     def stop(self):
@@ -356,7 +380,7 @@ class CameraWorker(threading.Thread):
                 calibration_mode = is_calibration_mode()
                 
                 # Adjust FPS based on mode
-                effective_fps = 2 if calibration_mode else self.target_fps
+                effective_fps = 2 if calibration_mode else self.get_effective_fps()
                 frame_delay = 1.0 / effective_fps
                 
                 start_time = time.time()
@@ -432,9 +456,9 @@ def main():
         sys.path.append(os.path.join(BASE_DIR, "src"))
         from config import CAMERAS
     except ImportError:
-        logger.warning("Could not load /opt/auris/src/config.py. Defaulting to webcam (0).")
+        logger.warning("Could not load /opt/auris/src/config.py. Defaulting to video simulation.")
         CAMERAS = {
-            "cam1": {"url": 0, "fps": 5}
+            "cam1": {"url": "videos/vid1.mp4", "fps": 2},
         }
         
     workers = []
