@@ -1,4 +1,4 @@
-﻿import json, time, queue, threading, sqlite3, logging, os, requests
+import json, time, queue, threading, sqlite3, logging, os, requests
 from datetime import datetime, timezone
 
 CLOUD_ENDPOINT = os.getenv("CLOUD_ENDPOINT", "http://98.70.41.191:8000/api/blobs")
